@@ -1,0 +1,46 @@
+name: Verify actions lock
+description: Run gh actions-lock --verify on pull requests that change workflow dependencies, failing on any finding.
+branding:
+  icon: lock
+  color: blue
+
+inputs:
+  working-directory:
+    description: The repository checkout to verify.
+    required: false
+    default: .
+  token:
+    description: Token for gh; read-only is enough.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  ran:
+    description: "'true' if the lockfile was verified, 'false' if the check was skipped."
+    value: ${{ steps.decide.outputs.run }}
+
+runs:
+  using: composite
+  steps:
+    - id: decide
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.merge_group.head_sha }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/decide.sh"
+    - name: Install gh actions-lock
+      if: steps.decide.outputs.run == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/install.sh"
+    - name: Verify actions.lock
+      if: steps.decide.outputs.run == 'true'
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/check.sh"
