@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@<tag locked in actions.lock>
         with:
           persist-credentials: false
-      - uses: Adam-S-Daniel/verify-actions-lock@v1.0.0
+      - uses: Adam-S-Daniel/verify-actions-lock@v1.0.1
 ```
 
 - **Reference it by release tag, locked in your `actions.lock`** like any other
