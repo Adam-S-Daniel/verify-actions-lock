@@ -21,8 +21,8 @@ decide() {
 
 case "$EVENT_NAME" in
   pull_request | pull_request_target | merge_group) ;;
-  workflow_dispatch) decide true "event is workflow_dispatch." ;;
-  *) decide false "event '$EVENT_NAME' is not a pull request; pins only change through pull requests, and the runner and the Require lockfile policy cover runtime." ;;
+  workflow_dispatch | schedule) decide true "event is $EVENT_NAME; verify every pin, including upstream changes since the last pull request." ;;
+  *) decide false "event '$EVENT_NAME' is not a pull request; pins only change through pull requests; schedule a weekly run to catch upstream changes." ;;
 esac
 
 sha_re='^[0-9a-f]{40}$'
