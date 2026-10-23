@@ -5,26 +5,29 @@ A composite GitHub Action that runs GitHub's
 `--verify` on pull requests that change workflow dependencies. It is the "verify
 job" that GitHub's guide
 [Enforcing workflow lockfiles](https://docs.github.com/en/actions/how-tos/administer/enforce-workflow-lockfiles)
-recommends running as a required check, plus three things the guide does not
-cover:
+recommends running as a required check. GitHub also publishes a sample
+workflow for it
+([`verify-lockfile.yml`](https://github.com/github/gh-actions-lock/blob/main/.github/workflows/verify-lockfile.yml));
+this action differs in three ways:
 
-1. **It fails on any finding, not just the exit code.** gh-actions-lock v0.2.0
-   exits 0 with `"valid": true` and a `reachability-unknown` finding when
-   GitHub's API is unreachable. This action fails then too; re-run the job once
-   the API is back. One category is exempt: `cooldown-config-ignored`, which
-   reports that gh-actions-lock ignores a `dependabot.yml` cooldown
-   include/exclude list and says nothing about a pin. It is printed as a notice.
-2. **It escapes finding text** before printing `::error::` lines (`%` to `%25`,
-   CR to `%0D`, LF to `%0A`), so text the tool echoes cannot start a workflow
-   command.
+1. **It installs a checksum-verified binary.** The release asset's SHA-256 is
+   pinned in `scripts/install.sh`, rather than trusting the release tag alone.
+2. **It fails on errors, warns on warnings, and escapes both.** It fails when
+   gh-actions-lock exits non-zero, reports `valid` other than `true`, or reports
+   any finding that is not a warning. Warnings (for example `container-image`
+   or `ref-moved`) are printed as `::warning::` and do not fail the check.
+   Finding text is escaped (`%` to `%25`, CR to `%0D`, LF to `%0A`) so nothing
+   the tool echoes can start a workflow command.
 3. **It runs always, and verifies only when it matters.** On `pull_request`,
    `pull_request_target` and `merge_group` it verifies if and only if the change
    touches `.github/workflows/**`, `.github/actions/**`, or a file named
    `action.yml` or `action.yaml` anywhere; otherwise it succeeds with a notice.
    If it cannot tell (a base or head SHA is missing or malformed, the commits
    are not available even after a fetch, or `git diff` fails), it verifies. On
-   `workflow_dispatch` it verifies. On any other event (`push`, `schedule`, ...)
-   it skips with a notice: pins only change through pull requests.
+   `schedule` and `workflow_dispatch` it verifies every pin, which catches
+   upstream changes (a re-pointed tag, a commit that left its branch) between
+   pull requests; add a weekly `schedule` trigger to the workflow for that. On
+   any other event (`push`, ...) it skips with a notice.
 
 ## It is not the only guard
 
@@ -45,7 +48,7 @@ jobs:
       - uses: actions/checkout@<tag locked in actions.lock>
         with:
           persist-credentials: false
-      - uses: Adam-S-Daniel/verify-actions-lock@v1.0.1
+      - uses: Adam-S-Daniel/verify-actions-lock@v1.1.0
 ```
 
 - **Reference it by release tag, locked in your `actions.lock`** like any other
@@ -72,23 +75,31 @@ jobs:
 
 ## The pinned extension
 
-`scripts/install.sh` downloads gh-actions-lock `v0.2.0`, asset `linux-amd64`,
+`scripts/install.sh` downloads gh-actions-lock `v0.3.0`, asset `linux-amd64`,
 and refuses it unless its SHA-256 is
-`79ec84c191667fd935a277e6fd3662cf5d3669cccc9e99998731d8f306f373b6`. Any
+`15810767a8cd28d389f0942e3ce515ac0008c3f65301c3834fd4c046d4bda497`. Any
 previously installed `actions-lock` extension is removed first, so a stale one
 is never used. To bump it, change `VERSION` and `SHA256` together in
 `scripts/install.sh` (take the digest from the release asset you have
-reviewed), update `CHANGELOG.md`, and cut a new release.
+reviewed and whose build attestation you have checked with
+`gh attestation verify <file> -R github/gh-actions-lock`), update
+`CHANGELOG.md`, and cut a new release.
 
 ## When it fails
 
 Every finding is printed as
-`::error::actions.lock <category>: <dependency>: <detail>`.
+`::error::actions.lock <category>: <dependency>: <detail>` (or `::warning::`
+for warnings). Each finding's `doc_url` points into gh-actions-lock's
+[troubleshooting guide](https://github.com/github/gh-actions-lock/blob/main/docs/troubleshooting.md).
 
+- **`tag-commit-mismatch`:** an exact tag is locked to an older commit than the
+  one it points at. Find out why, then run `gh actions-lock --relock` and commit
+  the updated lockfile.
 - **A moved or unreachable pin:** find out why the tag moved or the commit
   disappeared first. If the new commit is the one you want, run
   `gh actions-lock --accept-moved` and commit the updated lockfile.
-- **`reachability-unknown`:** the GitHub API was unreachable; re-run the job.
+- **GitHub did not answer** (`reachability-unknown` or `"retryable": true`):
+  re-run the job once the API is back.
 - **No readable JSON:** gh-actions-lock crashed or printed something else; read
   the job log.
 
@@ -96,9 +107,10 @@ Every finding is printed as
 
 - Cross-repository reusable workflows are not locked by gh-actions-lock today
   ([github/gh-actions-lock#179](https://github.com/github/gh-actions-lock/issues/179)).
-- Docker images are not locked.
-- If GitHub ships an official implementation of this check, replace this
-  action with it.
+- Docker images are not locked; gh-actions-lock reports them as
+  `container-image` warnings.
+- If GitHub's own sample workflow comes to cover the three differences above,
+  replace this action with it.
 
 ## License
 

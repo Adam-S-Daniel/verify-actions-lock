@@ -102,7 +102,7 @@ run_decide "base SHA not 40-hex" true "$repo" pull_request "${base:0:39}g" "$hea
 run_decide "base SHA abbreviated (resolvable but not 40-hex)" true "$repo" pull_request "${base:0:12}" "$head"
 run_decide "base commit unknown, no origin" true "$repo" pull_request "0123456789abcdef0123456789abcdef01234567" "$head"
 run_decide "push" false "$repo" push "$base" "$head"
-run_decide "schedule" false "$repo" schedule "" ""
+run_decide "schedule" true "$repo" schedule "" ""
 run_decide "workflow_dispatch" true "$repo" workflow_dispatch "" ""
 run_decide "merge_group touching only docs" false "$repo" merge_group "$base" "$head"
 
@@ -130,7 +130,7 @@ run_check() {
 has_line() { grep -qxF -- "$1" "$CHECK_OUT"; }
 has_prefix() { grep -q -- "^$1" "$CHECK_OUT"; }
 
-API_HINT='::error::reachability-unknown means the GitHub API was unreachable; re-run once it is back.'
+API_HINT='::error::GitHub did not answer for some pins; re-run once the API is back.'
 NO_JSON='::error::gh actions-lock --verify returned no readable JSON.'
 
 run_check '{"valid":true,"findings":[]}' 0
@@ -138,10 +138,21 @@ if [[ "$check_rc" -eq 0 ]] && has_line 'gh actions-lock --verify: lockfile verif
   pass "check: clean"
 else fail "check: clean" "exit $check_rc"; fi
 
-run_check '{"valid":true,"findings":[{"category":"cooldown-config-ignored","detail":"include ignored"}]}' 0
-if [[ "$check_rc" -eq 0 ]] && has_prefix '::notice::' && ! has_prefix '::error::'; then
-  pass "check: only cooldown-config-ignored passes with a notice"
-else fail "check: only cooldown-config-ignored passes with a notice" "exit $check_rc"; fi
+run_check '{"valid":true,"findings":[{"category":"container-image","severity":"warning","dependency":"docker://alpine:3","detail":"image not locked"}]}' 0
+if [[ "$check_rc" -eq 0 ]] && has_line '::warning::actions.lock container-image: docker://alpine:3: image not locked' \
+  && ! has_prefix '::error::' && has_line 'gh actions-lock --verify: lockfile verified.'; then
+  pass "check: a warning finding passes and is printed as ::warning::"
+else fail "check: a warning finding passes and is printed as ::warning::" "exit $check_rc"; fi
+
+run_check '{"valid":true,"findings":[{"category":"tag-commit-mismatch","severity":"error","dependency":"x/y@v1.2.3","detail":"behind"}]}' 0
+if [[ "$check_rc" -eq 1 ]] && has_line '::error::actions.lock tag-commit-mismatch: x/y@v1.2.3: behind'; then
+  pass "check: an error finding fails even when the tool exits 0"
+else fail "check: an error finding fails even when the tool exits 0" "exit $check_rc"; fi
+
+run_check '{"valid":false,"findings":[{"category":"api-unavailable","severity":"error","retryable":true,"dependency":"x/y@v1","detail":"no answer"}]}' 1
+if [[ "$check_rc" -eq 1 ]] && has_line "$API_HINT"; then
+  pass "check: a retryable finding fails with the API hint"
+else fail "check: a retryable finding fails with the API hint" "exit $check_rc"; fi
 
 run_check '{"valid":true,"findings":[{"category":"reachability-unknown","dependency":"actions/checkout@v7","detail":"api unreachable"}]}' 0
 if [[ "$check_rc" -eq 1 ]] && has_line "$API_HINT" \
