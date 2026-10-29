@@ -114,4 +114,4 @@ for warnings). Each finding's `doc_url` points into gh-actions-lock's
 
 ## License
 
-[MIT](LICENSE)
+[Apache-2.0](LICENSE)
