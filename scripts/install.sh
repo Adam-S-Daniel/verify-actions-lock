@@ -2,9 +2,9 @@
 # Download, checksum and install the pinned gh-actions-lock extension.
 set -euo pipefail
 
-VERSION=v0.3.0
+VERSION=v0.4.0
 ASSET=linux-amd64
-SHA256=15810767a8cd28d389f0942e3ce515ac0008c3f65301c3834fd4c046d4bda497
+SHA256=f9da98f2a6e9e0ae77deadf9a2319a8a86bb002b541cc3203b247cc59fb04842
 
 if [[ -n "${RUNNER_OS:-}" && "$RUNNER_OS" != "Linux" ]]; then
   echo "::error::verify-actions-lock supports Linux runners only (RUNNER_OS=$RUNNER_OS)."

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- gh-actions-lock v0.4.0 (linux-amd64, SHA-256
+  `f9da98f2a6e9e0ae77deadf9a2319a8a86bb002b541cc3203b247cc59fb04842`, matching
+  the digest GitHub shows on the immutable release). v0.4.0 only changes how
+  GHE.com runs read public github.com actions (an optional
+  `GH_ACTIONS_LOCK_GITHUB_COM_TOKEN`, or the stored github.com login, instead
+  of always anonymous); github.com runs, the JSON output and the lockfile
+  format are unchanged.
+
 ## v1.1.0 - 2026-10-23
 
 - gh-actions-lock v0.3.0 (linux-amd64, SHA-256
