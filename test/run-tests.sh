@@ -228,6 +228,183 @@ if [[ "$install_rc" -ne 0 ]] && [[ ! -s "$GH_CALLS" ]]; then
 else fail "install: refuses Windows before downloading" "exit $install_rc"; fi
 
 # ---------------------------------------------------------------------------
+# upstream-watch.sh, with a stub git and gh that answer from fixtures
+# ---------------------------------------------------------------------------
+
+STUB_WATCH="$WORK/stub-watch"
+mkdir -p "$STUB_WATCH"
+cat >"$STUB_WATCH/git" <<'EOF'
+#!/usr/bin/env bash
+[[ "$1" == "ls-remote" ]] || exit 99
+cat "$TAGS"
+EOF
+cat >"$STUB_WATCH/gh" <<'EOF'
+#!/usr/bin/env bash
+echo "$*" >>"$GH_CALLS"
+case "$1 $2" in
+  "release view")
+    # RELEASES lines: <tag> <publishedAt> <isPrerelease> <isDraft>
+    line=$(grep "^$3 " "$RELEASES") || { echo '{"message":"release not found"}'; exit 1; }
+    echo "${line#* }" ;;
+  "issue list") cat "$OPEN_ISSUES" ;;
+  "issue create") echo "https://github.com/o/r/issues/42" ;;
+esac
+exit 0
+EOF
+chmod +x "$STUB_WATCH/git" "$STUB_WATCH/gh"
+
+# Pin v0.4.0, like scripts/install.sh, but from a fixture.
+printf 'VERSION=v0.4.0\nSHA256=0\n' >"$WORK/install-fixture.sh"
+# 2026-11-10T00:00:00Z
+WATCH_NOW=1794268800
+
+# run_watch <name> <tags> <releases> <open-issues>; sets watch_rc, WATCH_OUT, GH_CALLS
+run_watch() {
+  local name="$1"
+  printf '%b' "$2" >"$WORK/tags-$name"
+  printf '%b' "$3" >"$WORK/releases-$name"
+  printf '%b' "$4" >"$WORK/issues-$name"
+  GH_CALLS="$WORK/watch-calls-$name"
+  WATCH_OUT="$WORK/watch-log-$name"
+  : >"$GH_CALLS"
+  watch_rc=0
+  env PATH="$STUB_WATCH:$PATH" GH_CALLS="$GH_CALLS" TAGS="$WORK/tags-$name" RELEASES="$WORK/releases-$name" \
+    OPEN_ISSUES="$WORK/issues-$name" NOW_EPOCH="$WATCH_NOW" INSTALL_SH="$WORK/install-fixture.sh" \
+    GITHUB_REPOSITORY=o/r bash "$ROOT/scripts/upstream-watch.sh" >"$WATCH_OUT" 2>&1 || watch_rc=$?
+}
+
+TAGS_ALL='a\trefs/tags/v0.3.0\nb\trefs/tags/v0.4.0\nc\trefs/tags/v0.4.1\nd\trefs/tags/v0.5.0-rc.1\ne\trefs/tags/v0.10.0\n'
+
+# Sourced, the script defines its functions without running main.
+newer=$(
+  # shellcheck source=/dev/null
+  source "$ROOT/scripts/upstream-watch.sh"
+  printf '%b' "$TAGS_ALL" | newer_stable_tags v0.4.0 | tr '\n' ' '
+)
+if [[ "$newer" == "v0.10.0 v0.4.1 " ]]; then
+  pass "watch: newer stable tags, version-sorted, newest first"
+else fail "watch: newer stable tags, version-sorted, newest first" "got '$newer'"; fi
+
+run_watch none 'b\trefs/tags/v0.4.0\n' '' ''
+if [[ "$watch_rc" -eq 0 ]] && ! grep -q '^release view' "$GH_CALLS" && ! grep -q '^issue' "$GH_CALLS"; then
+  pass "watch: nothing newer opens nothing"
+else fail "watch: nothing newer opens nothing" "exit $watch_rc"; fi
+
+# v0.4.1 is 8 days old.
+run_watch opens 'b\trefs/tags/v0.4.0\nc\trefs/tags/v0.4.1\n' 'v0.4.1 2026-11-02T00:00:00Z false false\n' ''
+if [[ "$watch_rc" -eq 0 ]] && grep -q '^issue create -R o/r --title gh-actions-lock v0.4.1 is out: bump verify-actions-lock from v0.4.0 ' "$GH_CALLS" \
+  && grep -q -- '--assignee Adam-S-Daniel' "$GH_CALLS" \
+  && grep -qxF 'api -X POST repos/o/r/issues/42/labels -f labels[]=upstream-release -f labels[]=needs-owner --silent' "$GH_CALLS"; then
+  pass "watch: a release past 7 days opens one labeled, assigned issue"
+else fail "watch: a release past 7 days opens one labeled, assigned issue" "exit $watch_rc"; fi
+
+# v0.4.1 is 6 days old: wait.
+run_watch waits 'c\trefs/tags/v0.4.1\n' 'v0.4.1 2026-11-04T00:00:00Z false false\n' ''
+if [[ "$watch_rc" -eq 0 ]] && ! grep -q '^issue' "$GH_CALLS"; then
+  pass "watch: a release inside the 7-day wait opens nothing"
+else fail "watch: a release inside the 7-day wait opens nothing" "exit $watch_rc"; fi
+
+# Exactly 7 days old counts.
+run_watch boundary 'c\trefs/tags/v0.4.1\n' 'v0.4.1 2026-11-03T00:00:00Z false false\n' ''
+if [[ "$watch_rc" -eq 0 ]] && grep -q '^issue create' "$GH_CALLS"; then
+  pass "watch: exactly 7 days old is past the wait"
+else fail "watch: exactly 7 days old is past the wait" "exit $watch_rc"; fi
+
+# The newest is too young, so the next older one past the wait is used.
+run_watch fallback 'c\trefs/tags/v0.4.1\ne\trefs/tags/v0.5.0\n' \
+  'v0.5.0 2026-11-09T00:00:00Z false false\nv0.4.1 2026-11-01T00:00:00Z false false\n' ''
+if [[ "$watch_rc" -eq 0 ]] && grep -q '^issue create -R o/r --title gh-actions-lock v0.4.1 ' "$GH_CALLS"; then
+  pass "watch: falls back to the newest release past the wait"
+else fail "watch: falls back to the newest release past the wait" "exit $watch_rc"; fi
+
+run_watch prerelease 'c\trefs/tags/v0.4.1\n' 'v0.4.1 2026-11-01T00:00:00Z true false\n' ''
+if [[ "$watch_rc" -eq 0 ]] && ! grep -q '^issue' "$GH_CALLS"; then
+  pass "watch: a prerelease opens nothing"
+else fail "watch: a prerelease opens nothing" "exit $watch_rc"; fi
+
+# A tag with no release: the stub's error body must not reach the log.
+run_watch norelease 'c\trefs/tags/v0.4.1\n' '' ''
+if [[ "$watch_rc" -eq 0 ]] && ! grep -q '^issue' "$GH_CALLS" && ! grep -q 'message' "$WATCH_OUT"; then
+  pass "watch: a tag without a release opens nothing and logs no API body"
+else fail "watch: a tag without a release opens nothing and logs no API body" "exit $watch_rc"; fi
+
+run_watch dedupe 'c\trefs/tags/v0.4.1\n' 'v0.4.1 2026-11-01T00:00:00Z false false\n' \
+  '7\tgh-actions-lock v0.4.1 is out: bump verify-actions-lock from v0.4.0\n'
+if [[ "$watch_rc" -eq 0 ]] && ! grep -q '^issue create' "$GH_CALLS" && ! grep -q '^issue edit' "$GH_CALLS" \
+  && ! grep -q '^api' "$GH_CALLS"; then
+  pass "watch: an open issue for the same release is left alone"
+else fail "watch: an open issue for the same release is left alone" "exit $watch_rc"; fi
+
+run_watch moveup 'c\trefs/tags/v0.4.1\ne\trefs/tags/v0.5.0\n' 'v0.5.0 2026-11-01T00:00:00Z false false\n' \
+  '7\tgh-actions-lock v0.4.1 is out: bump verify-actions-lock from v0.4.0\n'
+if [[ "$watch_rc" -eq 0 ]] && ! grep -q '^issue create' "$GH_CALLS" \
+  && grep -q '^issue edit 7 -R o/r --title gh-actions-lock v0.5.0 is out' "$GH_CALLS" && ! grep -q '^api' "$GH_CALLS"; then
+  pass "watch: an open issue for an older release moves up, without re-adding needs-owner"
+else fail "watch: an open issue for an older release moves up, without re-adding needs-owner" "exit $watch_rc"; fi
+
+printf 'VERSION=latest\n' >"$WORK/install-bad.sh"
+watch_rc=0
+env PATH="$STUB_WATCH:$PATH" GH_CALLS="$WORK/watch-calls-bad" INSTALL_SH="$WORK/install-bad.sh" GITHUB_REPOSITORY=o/r \
+  bash "$ROOT/scripts/upstream-watch.sh" >"$WORK/watch-log-bad" 2>&1 || watch_rc=$?
+if [[ "$watch_rc" -ne 0 ]]; then
+  pass "watch: an unreadable pin fails"
+else fail "watch: an unreadable pin fails" "exit $watch_rc"; fi
+
+if [[ "$(sed -n 's/^VERSION=//p' "$ROOT/scripts/install.sh")" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  pass "watch: install.sh's VERSION is in the shape the watch reads"
+else fail "watch: install.sh's VERSION is in the shape the watch reads"; fi
+
+# ---------------------------------------------------------------------------
+# Scheduled workflows: least privilege, no expressions in run:, a Monday cron
+# ---------------------------------------------------------------------------
+
+wf_rc=0
+# shellcheck disable=SC2016
+wf_out=$(python3 -I -c '
+import sys
+try:
+    import yaml
+except ImportError:
+    print("PyYAML is not installed; cannot check the workflows")
+    sys.exit(2)
+problems = []
+def load(path):
+    with open(path) as f:
+        doc = yaml.safe_load(f)
+    # PyYAML reads the bare key `on` as True.
+    doc["on"] = doc.pop(True, doc.get("on"))
+    return doc
+watch = load(sys.argv[1])
+crons = [s["cron"] for s in watch["on"].get("schedule", [])]
+if len(crons) != 1 or crons[0].split()[4] != "1" or crons[0].split()[0] in ("0", "30"):
+    problems.append("watch: want one Monday cron on a jittered minute, got %r" % crons)
+if "workflow_dispatch" not in watch["on"]:
+    problems.append("watch: no workflow_dispatch")
+if watch.get("permissions") != {}:
+    problems.append("watch: top-level permissions is not {}")
+for name, job in watch["jobs"].items():
+    if job.get("permissions") != {"contents": "read", "issues": "write"}:
+        problems.append("watch: job %s permissions %r" % (name, job.get("permissions")))
+    for i, step in enumerate(job.get("steps", [])):
+        if "${{" in str(step.get("run", "")):
+            problems.append("watch: job %s step %d run: contains ${{" % (name, i))
+health = load(sys.argv[2])
+uses = [j.get("uses", "") for j in health["jobs"].values()]
+ref = "Adam-S-Daniel/_agent-guidance/.github/workflows/scheduled-run-health-reusable.yml@"
+if len(uses) != 1 or not uses[0].startswith(ref) or len(uses[0][len(ref):]) != 40:
+    problems.append("health: want one call to the reusable at a full sha, got %r" % uses)
+if health.get("permissions") != {"contents": "read", "actions": "read", "issues": "write"}:
+    problems.append("health: permissions %r" % health.get("permissions"))
+print("; ".join(problems))
+sys.exit(1 if problems else 0)
+' "$ROOT/.github/workflows/upstream-release-watch.yml" "$ROOT/.github/workflows/scheduled-run-health.yml" 2>&1) || wf_rc=$?
+if [[ "$wf_rc" -eq 0 ]]; then
+  pass "scheduled workflows shape"
+else
+  fail "scheduled workflows shape" "$wf_out"
+fi
+
+# ---------------------------------------------------------------------------
 # action.yml shape, parsed with PyYAML
 # ---------------------------------------------------------------------------
 
