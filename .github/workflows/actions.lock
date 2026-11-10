@@ -10,6 +10,9 @@ workflows:
     '.github/workflows/dependabot-auto-merge.yml':
         - 'actions/checkout@v7.0.1'
         - 'dependabot/fetch-metadata@v3.1.0'
+    '.github/workflows/scheduled-run-health.yml': []
+    '.github/workflows/upstream-release-watch.yml':
+        - 'actions/checkout@v7.0.1'
 dependencies:
     'actions/checkout@v7.0.1':
         ref: 'v7.0.1'

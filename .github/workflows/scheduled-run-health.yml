@@ -1,0 +1,51 @@
+name: Scheduled-run health audit
+# Daily scan of THIS repo's last 48h of scheduled (`event=schedule`) workflow
+# runs for failure / startup_failure / timed_out, plus pull requests left with
+# a red check. Scheduled failures are otherwise SILENT: no PR goes red and
+# nothing notifies. Here that is upstream-release-watch.yml, the weekly check
+# for a newer gh-actions-lock release; a failed watch means a release goes
+# unnoticed. The platform owns the audit logic; this thin caller schedules it.
+# Findings land on a single `ci`-labelled tracking issue (opened on first
+# failure, new runs commented, auto-closed after a clean window); the issue
+# notification is the alert.
+run-name: >-
+  ${{ github.event_name == 'schedule'
+        && format('scheduled — {0}', github.event.schedule)
+     || format('manual — @{0}', github.actor) }}
+
+on:
+  schedule:
+    # Off-peak offset minute, after upstream-release-watch.yml's Monday 10:47
+    # UTC slot. GitHub cron lag (measured 4-5h on daily crons) is absorbed by
+    # the reusable's 48h scan window.
+    - cron: '41 11 * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Report findings without opening/updating/closing the tracking issue (true/false)'
+        # Declared `string` and fromJSON-coerced below. workflow_dispatch
+        # hands typed (boolean) inputs to a reusable's `with:` as strings,
+        # and the reusable's boolean input rejects them; the dispatch run
+        # startup-fails before any job. The scheduled cron is unaffected
+        # (the `&&` short-circuits, so fromJSON never runs there).
+        type: string
+        default: 'false'
+
+# The reusable needs actions: read (list workflow runs) + issues: write
+# (open/comment/close the tracking issue); reusable-workflow permissions are
+# capped by this caller's grant.
+permissions:
+  contents: read
+  actions: read
+  issues: write
+
+jobs:
+  audit:
+    # The fleet's lockfile-safe copy of the audit: a reusable is covered by
+    # the lockfile of the repo that defines it, so this repo's actions.lock
+    # lists nothing for this file. A cross-repo reusable takes a full commit
+    # sha. The audit's issue is the fleet's standard one, which the fleet's
+    # agents pick up (_agent-guidance#492).
+    uses: Adam-S-Daniel/_agent-guidance/.github/workflows/scheduled-run-health-reusable.yml@725400664dd84021b3fcd717e213e5994d0b20ff
+    with:
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && fromJSON(inputs.dry_run) || false }}
