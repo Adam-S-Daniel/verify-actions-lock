@@ -75,9 +75,9 @@ jobs:
 
 ## The pinned extension
 
-`scripts/install.sh` downloads gh-actions-lock `v0.4.0`, asset `linux-amd64`,
+`scripts/install.sh` downloads gh-actions-lock `v0.4.1`, asset `linux-amd64`,
 and refuses it unless its SHA-256 is
-`f9da98f2a6e9e0ae77deadf9a2319a8a86bb002b541cc3203b247cc59fb04842`. Any
+`39deb2fe714dbf74b073d8245fc7f3d50cd0eee18d5c0900e9e849ae933ae17e`. Any
 previously installed `actions-lock` extension is removed first, so a stale one
 is never used. To bump it, change `VERSION` and `SHA256` together in
 `scripts/install.sh` (take the digest from the release asset you have
