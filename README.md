@@ -29,6 +29,11 @@ this action differs in three ways:
    pull requests; add a weekly `schedule` trigger to the workflow for that. On
    any other event (`push`, ...) it skips with a notice.
 
+This action is kept instead of adopting the sample because the first and third
+differences are fleet rules, not preferences: a downloaded binary is pinned by
+digest, and a required check has to report on every pull request while doing
+its work only when the change calls for it.
+
 ## It is not the only guard
 
 GitHub's runner rejects a forged pin, and the **Require lockfile** policy

@@ -1,10 +1,11 @@
 # Changelog
 
-## Unreleased
+## v1.2.0 - 2026-11-13
 
 - gh-actions-lock v0.4.1 (linux-amd64, SHA-256
-  `39deb2fe714dbf74b073d8245fc7f3d50cd0eee18d5c0900e9e849ae933ae17e`, matching
-  the digest GitHub shows on the immutable release). Over v0.3.0 it brings:
+  `39deb2fe714dbf74b073d8245fc7f3d50cd0eee18d5c0900e9e849ae933ae17e`; build
+  attestation verified against its release workflow at `v0.4.1`). Over v0.3.0
+  it brings:
   - v0.4.0: GHE.com runs read public github.com actions with an optional
     `GH_ACTIONS_LOCK_GITHUB_COM_TOKEN`, or the stored github.com login,
     instead of always anonymously.
