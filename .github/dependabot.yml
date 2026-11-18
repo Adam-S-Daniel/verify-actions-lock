@@ -1,8 +1,12 @@
+# Daily bumps. Third-party actions wait 7 days after release; our own
+# (Adam-S-Daniel/*, jodidaniel/*) are this account's code, gated by its own
+# required checks, so they skip the wait.
 version: 2
 updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     cooldown:
       default-days: 7
+      exclude: ["Adam-S-Daniel/*", "jodidaniel/*"]
